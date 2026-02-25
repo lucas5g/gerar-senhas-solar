@@ -37,7 +37,8 @@ async function gerarUsuarios(
   onLog: (msg: string) => void,
   onResult: (result: any) => void
 ) {
-  const browser = await chromium.launch({ headless: false });
+  const inicioGeral = Date.now();
+  const browser = await chromium.launch({ headless: true });
   try {
     const promessasDeUsuarios = Array.from({ length: numeroDeAbas }).map(async (_, indexUsuario) => {
       const context = await browser.newContext();
@@ -66,6 +67,8 @@ async function gerarUsuarios(
   } finally {
     await browser.close();
   }
+  const fimGeral = Date.now();
+  return ((fimGeral - inicioGeral) / 1000).toFixed(2);
 }
 
 const HTML_CONTENT = `
@@ -289,7 +292,18 @@ const HTML_CONTENT = `
             evtSource.close();
             btn.disabled = false;
             btn.innerText = 'Iniciar Novamente';
-            statusText.innerHTML = '✅ Processo finalizado com sucesso!';
+            const tempoStr = data.data && data.data.tempoTotal ? \` em \${data.data.tempoTotal}s\` : '';
+            statusText.innerHTML = \`✅ Processo finalizado com sucesso\${tempoStr}!\`;
+
+            if (data.data && data.data.tempoTotal) {
+              const tr = document.createElement('tr');
+              tr.style.backgroundColor = 'rgba(59, 130, 246, 0.1)';
+              tr.innerHTML = \`
+                <td colspan="2" style="font-weight: bold; text-align: right;">TEMPO TOTAL:</td>
+                <td style="font-weight: bold; color: var(--primary);">\${data.data.tempoTotal} s</td>
+              \`;
+              resultsBody.appendChild(tr);
+            }
           }
         };
 
@@ -367,10 +381,10 @@ const server = createServer((req, res) => {
           senha,
           (msg) => sendEventToClients({ type: 'log', message: msg }),
           (result) => sendEventToClients({ type: 'result', data: result })
-        ).then(() => {
-          sendEventToClients({ type: 'done' });
+        ).then((tempoTotal) => {
+          sendEventToClients({ type: 'done', data: { tempoTotal } });
           currentProcess = null;
-          console.log('Processo finalizado.');
+          console.log(`Processo finalizado em ${tempoTotal}s.`);
         }).catch((err) => {
           sendEventToClients({ type: 'log', message: 'Erro no processo: ' + err.message });
           sendEventToClients({ type: 'done' });

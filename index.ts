@@ -4,11 +4,11 @@ import { createServer } from 'http';
 /**
  * Função responsável por navegar e gerar senhas em uma aba já autenticada
  */
-async function gerarSenhas(workerPage: any, indexUsuario: number, quantidadeDeSenhas: number) {
+async function gerarSenhas(workerPage: any, indexUsuario: number, quantidadeDeSenhas: number, comarca: string, predio: string, baseUrl: string) {
   const inicioTotal = Date.now();
 
   for (let count = 1; count <= quantidadeDeSenhas; count++) {
-    await workerPage.goto('https://dev.solar.mg.def.br/atendimento/recepcao/novo-painel/comarca/1/predio/133/?aba=senhas');
+    await workerPage.goto(`https://${baseUrl}/atendimento/recepcao/novo-painel/comarca/${comarca}/predio/${predio}/?aba=senhas`);
 
     // Comandos de clique para gerar a senha
     await workerPage.getByRole('button', { name: ' Senha' }).click();
@@ -34,6 +34,9 @@ async function gerarUsuarios(
   quantidadeDeSenhas: number,
   cpf: string,
   senhaCpf: string,
+  comarca: string,
+  predio: string,
+  baseUrl: string,
   onLog: (msg: string) => void,
   onResult: (result: any) => void
 ) {
@@ -45,7 +48,7 @@ async function gerarUsuarios(
       const workerPage = await context.newPage();
 
       try {
-        await workerPage.goto('https://dev.solar.mg.def.br/login/?next=/');
+        await workerPage.goto(`https://${baseUrl}/login/?next=/`);
         await workerPage.getByRole('textbox', { name: 'Digite seu CPF' }).fill(cpf);
         await workerPage.getByRole('textbox', { name: 'Digite sua senha' }).click();
         await workerPage.getByRole('textbox', { name: 'Digite sua senha' }).fill(senhaCpf);
@@ -53,8 +56,8 @@ async function gerarUsuarios(
 
         await workerPage.waitForTimeout(1000);
 
-        const result = await gerarSenhas(workerPage, indexUsuario, quantidadeDeSenhas);
-        onLog(`Usuário ${result.usuario} finalizou a geração de senhas em ${result.tempo}s`);
+        const result = await gerarSenhas(workerPage, indexUsuario, quantidadeDeSenhas, comarca, predio, baseUrl);
+        console.log(`Usuário ${result.usuario} finalizou a geração de senhas em ${result.tempo}s`);
         onResult(result);
       } catch (err: any) {
         onLog(`Erro no usuário ${indexUsuario + 1}: ${err.message}`);
@@ -197,6 +200,21 @@ const HTML_CONTENT = `
     <p class="subtitle">Automatização de acesso via Playwright</p>
     
     <div class="form-group">
+      <label for="baseUrl">Ambiente (Base URL)</label>
+      <input type="text" id="baseUrl" value="dev.solar.mg.def.br">
+    </div>
+    
+    <div class="form-group">
+      <label for="comarca">Comarca</label>
+      <input type="text" id="comarca" value="1">
+    </div>
+    
+    <div class="form-group">
+      <label for="predio">Prédio</label>
+      <input type="text" id="predio" value="133">
+    </div>
+    
+    <div class="form-group">
       <label for="cpf">CPF</label>
       <input type="text" id="cpf" placeholder="Apenas números">
     </div>
@@ -242,6 +260,9 @@ const HTML_CONTENT = `
       const senha = document.getElementById('senha').value;
       const numeroAbas = document.getElementById('numeroAbas').value;
       const quantidadeSenhas = document.getElementById('quantidadeSenhas').value;
+      const comarca = document.getElementById('comarca').value;
+      const predio = document.getElementById('predio').value;
+      const baseUrl = document.getElementById('baseUrl').value;
       const btn = document.getElementById('btnStart');
       const statusText = document.getElementById('statusText');
       const resultsContainer = document.getElementById('resultsContainer');
@@ -265,7 +286,10 @@ const HTML_CONTENT = `
             numeroDeAbas: parseInt(numeroAbas),
             quantidadeDeSenhas: parseInt(quantidadeSenhas),
             cpf: cpf,
-            senha: senha
+            senha: senha,
+            comarca: comarca,
+            predio: predio,
+            baseUrl: baseUrl
           })
         });
         
@@ -279,7 +303,11 @@ const HTML_CONTENT = `
           const data = JSON.parse(event.data);
           
           if (data.type === 'log') {
-            // Pode ser usado para logar progresso
+            const tr = document.createElement('tr');
+            tr.innerHTML = \`
+              <td colspan="3" style="color: #ef4444; font-size: 0.85rem;">\${data.message}</td>
+            \`;
+            resultsBody.appendChild(tr);
           } else if (data.type === 'result') {
             const tr = document.createElement('tr');
             tr.innerHTML = \`
@@ -368,17 +396,26 @@ const server = createServer((req, res) => {
         const quantidadeDeSenhas = params.quantidadeDeSenhas || 1;
         const cpf = params.cpf || '';
         const senha = params.senha || '';
+        const comarca = params.comarca || '1';
+        const predio = params.predio || '133';
+        let baseUrl = params.baseUrl || 'dev.solar.mg.def.br';
+
+        // Sanitizar a baseUrl caso o usuário tenha digitado com http/https ou barras no final
+        baseUrl = baseUrl.replace(/^https?:\/\//, '').replace(/\/$/, '');
 
         res.writeHead(200, { 'Content-Type': 'application/json' });
         res.end(JSON.stringify({ success: true }));
 
-        console.log(`Iniciando ${numeroDeAbas} abas com ${quantidadeDeSenhas} senhas para o CPF ${cpf}...`);
+        console.log(`Iniciando ${numeroDeAbas} abas com ${quantidadeDeSenhas} senhas para o CPF ${cpf} (Ambiente: ${baseUrl}, Comarca: ${comarca}, Prédio: ${predio})...`);
 
         currentProcess = gerarUsuarios(
           numeroDeAbas,
           quantidadeDeSenhas,
           cpf,
           senha,
+          comarca,
+          predio,
+          baseUrl,
           (msg) => sendEventToClients({ type: 'log', message: msg }),
           (result) => sendEventToClients({ type: 'result', data: result })
         ).then((tempoTotal) => {
